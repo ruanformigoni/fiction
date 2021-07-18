@@ -1,28 +1,43 @@
-FROM alpine:latest
+#  vim: set syntax=dockerfile expandtab fdm=marker ts=2 sw=2 tw=80 et :
 
-# Optional argument to run the "make" command in parallel with the specified NUMBER_OF_JOBS
-ARG NUMBER_OF_JOBS=1
+FROM ubuntu:latest
 
-# Configure apt and install packages
-    RUN apk add --no-cache \
-    # Install cmake with its dependencies
-        build-base gcc abuild binutils binutils-doc gcc-doc \
-        cmake cmake-doc extra-cmake-modules extra-cmake-modules-doc \
-    #
-    # Install packages needed to build fiction
-        git g++ cmake boost-dev python3 python3-dev readline-dev zlib-dev
+#
+# Maximum number of threads to compile tools
+#
+ENV NUMBER_OF_JOBS=6
 
-# Clone the repository including submodules
-RUN git clone --recursive https://github.com/marcelwa/fiction.git
+#
+# Avoid interactive prompts
+#
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Create fiction directory in root
-WORKDIR /fiction
+#
+# Update and install dependencies
+#
+RUN apt update
+RUN apt install -y git build-essential gcc clang binutils cmake  \
+  extra-cmake-modules libboost-filesystem-dev libboost-dev python3 \
+  python3-distutils python-dev python3-dev libreadline-dev
 
-# Build fiction
-RUN mkdir build \
-    && cd build \
-    && cmake .. \
-    && make -j${NUMBER_OF_JOBS}
+#
+# Create user
+#
+RUN useradd -u 1000 -m eda
+RUN usermod -a -G $(groups) eda
+USER eda
+WORKDIR /home/eda/
 
-# Automatically start fiction when started in interactive mode
-CMD ["./build/fiction"]
+#
+# Clone and compile fiction
+#
+RUN git clone --recursive https://github.com/marcelwa/fiction.git fiction
+RUN cd fiction \
+  && mkdir build \
+  && cd build \
+  && cmake -DCMAKE_CXX_COMPILER=clang++ .. \
+  && make -lboost_filesystem -lboost_system -j${NUMBER_OF_JOBS}
+
+WORKDIR /home/eda/fiction
+
+CMD ["bash"]

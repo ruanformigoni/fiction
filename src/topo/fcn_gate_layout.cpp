@@ -1166,6 +1166,80 @@ void fcn_gate_layout::write_layout(std::ostream& os, const bool io_color, const 
     s_matrix x_dirs(num_rows, std::vector<std::string>(num_cols + 1u, " "));
     s_matrix y_dirs(num_rows + 1u, std::vector<std::string>(num_cols, " "));
 
+    //
+    // Draw SVG
+    //
+
+    //
+    // Settings
+    //
+
+    // Radius
+    constexpr int32_t const vertex_radius{10};
+    // Horizontal space between vertices
+    constexpr int32_t const tile_size{vertex_radius*3};
+    // Offset of circles from the edges
+    constexpr int32_t const circle_offset{vertex_radius};
+
+    //
+    // SVG templates
+    //
+
+    constexpr std::string_view const h_template
+    {
+      "<svg version='1.1' viewBox='0 0 {} {}'>\n"
+      "<style>\n"
+      "  circle {{\n"
+      "    stroke: black;\n"
+      "    stroke-width: 2px;\n"
+      "  }}\n"
+      "</style>\n"
+    };
+
+    constexpr std::string_view const v_label_template
+    {
+      "<text x='{}' y='{}' text-anchor='middle' font-size='{}' fill='{}'>{}</text>\n"
+    };
+
+    constexpr std::string_view const v_template
+    {
+      "<circle r='{}' cx='{}' cy='{}' fill='{}'/>\n",
+    };
+
+    constexpr std::string_view const e_template
+    {
+      "<line x1 = '{}' y1 = '{}' x2 = '{}' y2 = '{}' "
+      "stroke = 'black' stroke-width = '3'/>\n"
+    };
+
+    constexpr std::string_view const footer{"</svg>\n"};
+
+    std::stringstream ss;
+    ss << fmt::format(h_template,
+        x()*tile_size*2+circle_offset,
+        y()*tile_size*2+circle_offset
+    );
+
+    auto edge_up_down =
+    [&](auto i, auto j)
+    {
+        auto x1{i*tile_size};
+        auto x2{i*tile_size+circle_offset*2};
+        auto y{j*tile_size+circle_offset};
+
+        return fmt::format(e_template,x1,y,x2,y);
+    };
+
+    auto edge_right_left =
+    [&](auto i, auto j)
+    {
+        auto x{i*tile_size+circle_offset};
+        auto y1{j*tile_size};
+        auto y2{j*tile_size+circle_offset*2};
+
+        return fmt::format(e_template,x,y1,x,y2);
+    };
+
     for (auto i : iter::range(num_rows))
     {
         for (auto j : iter::range(num_cols))
@@ -1174,79 +1248,136 @@ void fcn_gate_layout::write_layout(std::ostream& os, const bool io_color, const 
             auto t2 = above(t1);
             auto o  = get_op(t1);
 
-            // a wire above indicates a crossing
-            if (o == operation::W && get_op(t2) == operation::W)
-                ops[i][j] = "+";
+            if (is_gate_tile(t1) && get_logic_vertex(t1))
+            {
+                ss << fmt::format(v_template,
+                    vertex_radius,
+                    i*tile_size+circle_offset,
+                    j*tile_size+circle_offset,
+                    "black"
+                );
+
+                ss << fmt::format(v_label_template,
+                    i*tile_size+circle_offset,
+                    j*tile_size+circle_offset,
+                    10,
+                    "white",
+                    std::to_string(*get_logic_vertex(t1))
+                );
+
+                ops[i][j] = std::to_string(*get_logic_vertex(t1));
+            } // if
             else
-                ops[i][j] = str(o);
+            {
+                // a wire above indicates a crossing
+                if (o == operation::W && get_op(t2) == operation::W)
+                {
+                    ops[i][j] = "+";
+                }
+                else
+                {
+                    if (o != operation::NONE)
+                    {
+                        ops[i][j] = str(o);
+                    } // if
+                }
+            } // else
+
 
             // determine outgoing directions
-            if ((is_tile_out_dir(t1, layout::DIR_E) && is_tile_out_dir({j + 1, i, GROUND}, layout::DIR_W)) ||
-                (is_tile_out_dir(t2, layout::DIR_E) && is_tile_out_dir({j + 1, i, GROUND + 1}, layout::DIR_W)))
-                x_dirs[i][j] = "↔";
-            else if (is_tile_out_dir(t1, layout::DIR_E) || is_tile_out_dir(t2, layout::DIR_E))
-                x_dirs[i][j] = "→";
-            if ((is_tile_out_dir(t1, layout::DIR_W) || is_tile_out_dir(t2, layout::DIR_W)) && j > 0u) // safety check to prevent SEGFAULT
-                x_dirs[i][j - 1u] = "←";
+            // if ((is_tile_out_dir(t1, layout::DIR_E) && is_tile_out_dir({j + 1, i, GROUND}, layout::DIR_W)) ||
+            //     (is_tile_out_dir(t2, layout::DIR_E) && is_tile_out_dir({j + 1, i, GROUND + 1}, layout::DIR_W)))
+            // {
+            //
+            //     // x_dirs[i][j] = "↔";
+            // }
+            if (is_tile_out_dir(t1, layout::DIR_E) || is_tile_out_dir(t2, layout::DIR_E))
+            {
+                ss << edge_right_left(i,j);
+                // x_dirs[i][j] = "→";
+            }
+            else if ((is_tile_out_dir(t1, layout::DIR_W) || is_tile_out_dir(t2, layout::DIR_W)) && j > 0u) // safety check to prevent SEGFAULT
+            {
+                ss << edge_right_left(i,j);
+                // x_dirs[i][j - 1u] = "←";
+            }
 
-            if ((is_tile_out_dir(t1, layout::DIR_N) && is_tile_out_dir({j, i - 1, GROUND}, layout::DIR_S)) ||
-                (is_tile_out_dir(t2, layout::DIR_N) && is_tile_out_dir({j, i - 1, GROUND + 1}, layout::DIR_S)))
-                y_dirs[i][j] = "↕";
-            else if (is_tile_out_dir(t1, layout::DIR_N) || is_tile_out_dir(t2, layout::DIR_N))
-                y_dirs[i][j] = "↑";
-            if (is_tile_out_dir(t1, layout::DIR_S) || is_tile_out_dir(t2, layout::DIR_S))
-                y_dirs[i + 1u][j] = "↓";
+            // if ((is_tile_out_dir(t1, layout::DIR_N) && is_tile_out_dir({j, i - 1, GROUND}, layout::DIR_S)) ||
+            //     (is_tile_out_dir(t2, layout::DIR_N) && is_tile_out_dir({j, i - 1, GROUND + 1}, layout::DIR_S)))
+            // {
+            //
+            //     // y_dirs[i][j] = "↕";
+            // }
+            if (is_tile_out_dir(t1, layout::DIR_N) || is_tile_out_dir(t2, layout::DIR_N))
+            {
+                ss << edge_up_down(i,j);
+
+                // y_dirs[i][j] = "↑";
+            }
+            else if (is_tile_out_dir(t1, layout::DIR_S) || is_tile_out_dir(t2, layout::DIR_S))
+            {
+                ss << edge_up_down(i,j);
+                // y_dirs[i + 1u][j] = "↓";
+            }
         }
     }
 
-    // Escape color sequence for input colors (green).
-    const char* INP_COLOR = "\033[38;5;28m";
-    // Escape color sequence for output colors (red).
-    const char* OUT_COLOR = "\033[38;5;166m";
-    // Escape color sequence for latch colors (yellow on black).
-    const char* LATCH_COLOR = "\033[48;5;232;38;5;226m";
-    // Escape color sequence for resetting colors.
-    const char* COLOR_RESET = "\033[0m";
-    // Escape color sequences for clock background colors (white to dark grey).
-    std::vector<const char*> CLOCK_COLORS{{"\033[48;5;255;38;5;232m",  // white tile, black text
-                                           "\033[48;5;248;38;5;232m",  // light grey tile, black text
-                                           "\033[48;5;240;38;5;255m",  // grey tile, white text
-                                           "\033[48;5;236;38;5;255m"   // dark grey tile, white text
-                                          }};
+    ss << fmt::format(footer);
 
+    std::ofstream ofile{"output.svg"};
+
+    ofile << ss.str();
+
+    ofile.close();
+
+    // // Escape color sequence for input colors (green).
+    // const char* INP_COLOR = "\033[38;5;28m";
+    // // Escape color sequence for output colors (red).
+    // const char* OUT_COLOR = "\033[38;5;166m";
+    // // Escape color sequence for latch colors (yellow on black).
+    // const char* LATCH_COLOR = "\033[48;5;232;38;5;226m";
+    // // Escape color sequence for resetting colors.
+    // const char* COLOR_RESET = "\033[0m";
+    // // Escape color sequences for clock background colors (white to dark grey).
+    // std::vector<const char*> CLOCK_COLORS{{"\033[48;5;255;38;5;232m",  // white tile, black text
+    //                                        "\033[48;5;248;38;5;232m",  // light grey tile, black text
+    //                                        "\033[48;5;240;38;5;255m",  // grey tile, white text
+    //                                        "\033[48;5;236;38;5;255m"   // dark grey tile, white text
+    //                                       }};
+    //
     // actual printing
-    auto r_ctr = 0u, c_ctr = 0u;
-    for (auto& row : ops)
-    {
-        for (auto& d : y_dirs[r_ctr])
-            os << d << " ";
-        os << '\n';
-
-        for (auto& o : row)
-        {
-            auto t = tile{c_ctr, r_ctr, GROUND};
-
-            if (clk_color && tile_clocking(t))
-                os << CLOCK_COLORS[*tile_clocking(t)];
-            if (io_color && (get_latch(t) > 0u))
-                os << LATCH_COLOR;
-            if (io_color && is_pi(t))
-                os << INP_COLOR;
-            else if (io_color && is_po(t))
-                os << OUT_COLOR;
-
-            os << o << COLOR_RESET;
-
-            os << x_dirs[r_ctr][c_ctr];
-            ++c_ctr;
-        }
-        c_ctr = 0u;
-        os << '\n';
-
-        ++r_ctr;
-    }
-    // flush stream
-    os << std::endl;
+    // auto r_ctr = 0u, c_ctr = 0u;
+    // for (auto& row : ops)
+    // {
+    //     for (auto& d : y_dirs[r_ctr])
+    //         os << d << " ";
+    //     os << '\n';
+    //
+    //     for (auto& o : row)
+    //     {
+    //         auto t = tile{c_ctr, r_ctr, GROUND};
+    //
+    //         if (clk_color && tile_clocking(t))
+    //             os << CLOCK_COLORS[*tile_clocking(t)];
+    //         else if (io_color && (get_latch(t) > 0u))
+    //             os << LATCH_COLOR;
+    //         else if (io_color && is_pi(t))
+    //             os << INP_COLOR;
+    //         else if (io_color && is_po(t))
+    //             os << OUT_COLOR;
+    //
+    //         os << o << COLOR_RESET;
+    //
+    //         os << x_dirs[r_ctr][c_ctr];
+    //         ++c_ctr;
+    //     }
+    //     c_ctr = 0u;
+    //     os << '\n';
+    //
+    //     ++r_ctr;
+    // }
+    // // flush stream
+    // os << std::endl;
 }
 
 void fcn_gate_layout::clear_layout() noexcept
