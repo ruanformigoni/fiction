@@ -1,6 +1,6 @@
 #  vim: set syntax=dockerfile expandtab fdm=marker ts=2 sw=2 tw=80 et :
 
-FROM ubuntu:latest
+FROM ubuntu:focal
 
 #
 # Maximum number of threads to compile tools
@@ -31,7 +31,7 @@ WORKDIR /home/eda/
 #
 # Clone and compile fiction
 #
-RUN git clone --recursive https://github.com/marcelwa/fiction.git fiction
+RUN git clone --recursive https://github.com/ruanformigoni/fiction.git fiction
 RUN cd fiction \
   && mkdir build \
   && cd build \
